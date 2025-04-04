@@ -1,81 +1,116 @@
-# Media File Renaming Tool
+# AIGua
 
-A tool for intelligently renaming media files using AI and TMDB API integration.
+A modern media file management and organization tool that uses AI to identify and rename media files.
 
-## Features
+## Architecture
 
-- Smart file renaming using Grok AI and TMDB API
-- Support for multiple media library directories
-- Batch processing of files
-- Configurable API settings and proxy options
-- User-friendly interface with file preview and selection
+The application is built with a modern, modular architecture:
 
-## Project Structure
+### Backend (FastAPI)
 
-```
-aigua/
-├── backend/           # FastAPI backend
-│   ├── app/          # Application code
-│   ├── tests/        # Backend tests
-│   └── requirements.txt
-├── frontend/         # Vue.js frontend
-│   ├── src/         # Source code
-│   ├── public/      # Static files
-│   └── package.json
-└── README.md
-```
+- **Configuration Management**
+  - Centralized configuration using Pydantic models
+  - Separate configuration for LLM, TMDB, Media Libraries, and General settings
+  - JSON-based configuration storage
+
+- **Services Layer**
+  - `LLMService`: Handles AI model interactions
+  - `TMDBService`: Manages TMDB API communication
+  - `MediaService`: Handles media file operations
+
+- **API Layer**
+  - RESTful endpoints organized by domain
+  - Proper error handling and validation
+  - Async operations for better performance
+
+### Frontend (Vue.js)
+
+- **Store Management**
+  - Centralized state management
+  - Computed properties for derived data
+  - Type-safe models
+
+- **Components**
+  - Modular component architecture
+  - Reusable UI components
+  - Responsive design
 
 ## Setup
 
-### Backend Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/aigua.git
+   cd aigua
+   ```
 
-1. Create a virtual environment:
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+2. Install backend dependencies:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+3. Install frontend dependencies:
+   ```bash
+   cd frontend
+   npm install
+   ```
 
-3. Run the backend:
-```bash
-uvicorn app.main:app --reload
-```
+4. Configure the application:
+   - Copy `backend/config.json` to your desired location
+   - Update the configuration with your API keys and paths
+   - Set up your media libraries
 
-### Frontend Setup
+5. Start the backend server:
+   ```bash
+   cd backend
+   uvicorn app.main:app --reload
+   ```
 
-1. Install dependencies:
-```bash
-cd frontend
-npm install
-```
-
-2. Run the development server:
-```bash
-npm run serve
-```
+6. Start the frontend development server:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
 
 ## Configuration
 
-Before using the application, you need to configure:
+The application uses a JSON-based configuration file with the following sections:
 
-1. Media library directories
-2. Grok API key
-3. TMDB API key
-4. Proxy settings (if required)
+- **LLM Configuration**
+  - Provider selection (OpenAI, Gemini, Grok, Deepseek)
+  - Model settings
+  - API keys and endpoints
+  - Rate limiting
 
-These can be configured through the web interface under the "System Configuration" section.
+- **TMDB Configuration**
+  - API key
+  - Rate limiting
+  - Language settings
 
-## API速率限制
+- **Media Library Configuration**
+  - Library paths and types
+  - Naming templates
+  - Supported file extensions
 
-应用程序现在使用基于令牌桶算法的API速率限制器来控制API请求速率：
+- **General Configuration**
+  - Proxy settings
+  - Debug mode
+  - Logging level
 
-- Grok API: 默认限制为每秒1次请求
-- TMDB API: 默认限制为每秒50次请求
+## API Documentation
 
-当遇到API速率限制错误(429 Too Many Requests)时，系统会自动减半速率并等待适当的时间后重试。
-API调用统计信息会在处理完成后显示，包括总调用次数、总耗时、平均耗时、错误次数和速率限制错误次数。 
+Once the server is running, visit:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

@@ -98,53 +98,26 @@ def safe_remove_file(path, log_to=None, should_remove_empty_dir=True):
                 })
             
             # 检查目录是否为空，如果为空则删除目录
-            if should_remove_empty_dir and os.path.exists(parent_dir) and os.path.isdir(parent_dir):
-                try:
-                    # 获取目录中的所有内容
-                    dir_contents = os.listdir(parent_dir)
-                    
-                    # 如果目录为空，删除目录
-                    if not dir_contents:
-                        os.rmdir(parent_dir)
-                        dir_removal_log = f"文件夹已删除 (为空): {parent_dir}"
-                        print(dir_removal_log)
-                        
-                        # 如果提供了日志列表，记录目录删除操作
-                        if log_to is not None and isinstance(log_to, list):
-                            log_to.append({
-                                "file": parent_dir,
-                                "status": "success",
-                                "message": dir_removal_log,
-                                "operation": "delete_dir"
-                            })
-                except Exception as dir_err:
-                    print(f"检查或删除空目录时出错: {str(dir_err)}")
-                    if log_to is not None and isinstance(log_to, list):
-                        log_to.append({
-                            "file": parent_dir,
-                            "status": "error",
-                            "message": f"检查或删除空目录时出错: {str(dir_err)}",
-                            "operation": "delete_dir",
-                            "error": str(dir_err)
-                        })
-                
+            if should_remove_empty_dir and parent_dir:
+                safe_remove_empty_dir(parent_dir, log_to)
+            
             return True
         else:
-            error_log = f"文件不存在或不是文件，无法删除: {path}"
-            print(error_log)
+            not_found_log = f"文件不存在或不是文件: {path}"
+            print(not_found_log)
             
             # 如果提供了日志列表，记录操作
             if log_to is not None and isinstance(log_to, list):
                 log_to.append({
                     "file": path,
-                    "status": "warning",
-                    "message": error_log,
+                    "status": "not_found",
+                    "message": not_found_log,
                     "operation": "delete"
                 })
-                
+            
             return False
     except Exception as e:
-        error_log = f"删除文件失败: {str(e)}"
+        error_log = f"删除文件失败: {path}, 错误: {str(e)}"
         print(error_log)
         print(f"错误类型: {type(e)}")
         print(f"错误堆栈: {traceback.format_exc()}")
@@ -158,7 +131,7 @@ def safe_remove_file(path, log_to=None, should_remove_empty_dir=True):
                 "operation": "delete",
                 "error": str(e)
             })
-            
+        
         return False
 
 # 安全删除空目录的辅助函数
@@ -177,8 +150,7 @@ def safe_remove_empty_dir(path, log_to=None):
     try:
         if os.path.exists(long_path) and os.path.isdir(long_path):
             # 检查目录是否为空
-            dir_contents = os.listdir(long_path)
-            if not dir_contents:
+            if not os.listdir(long_path):
                 os.rmdir(long_path)
                 removal_log = f"空目录已成功删除: {path}"
                 print(removal_log)
@@ -186,41 +158,48 @@ def safe_remove_empty_dir(path, log_to=None):
                 # 如果提供了日志列表，记录操作
                 if log_to is not None and isinstance(log_to, list):
                     log_to.append({
-                        "file": path,
+                        "directory": path,
                         "status": "success",
                         "message": removal_log,
-                        "operation": "delete_dir"
+                        "operation": "delete_empty_dir"
                     })
+                
+                # 递归检查父目录是否为空
+                parent_dir = os.path.dirname(long_path)
+                if parent_dir:
+                    safe_remove_empty_dir(parent_dir, log_to)
+                
                 return True
             else:
-                warning_log = f"目录不为空，无法删除: {path}"
-                print(warning_log)
+                not_empty_log = f"目录不为空，无法删除: {path}"
+                print(not_empty_log)
                 
                 # 如果提供了日志列表，记录操作
                 if log_to is not None and isinstance(log_to, list):
                     log_to.append({
-                        "file": path,
-                        "status": "warning",
-                        "message": warning_log,
-                        "operation": "delete_dir"
+                        "directory": path,
+                        "status": "not_empty",
+                        "message": not_empty_log,
+                        "operation": "delete_empty_dir"
                     })
+                
                 return False
         else:
-            error_log = f"路径不存在或不是目录，无法删除: {path}"
-            print(error_log)
+            not_found_log = f"目录不存在或不是目录: {path}"
+            print(not_found_log)
             
             # 如果提供了日志列表，记录操作
             if log_to is not None and isinstance(log_to, list):
                 log_to.append({
-                    "file": path,
-                    "status": "warning",
-                    "message": error_log,
-                    "operation": "delete_dir"
+                    "directory": path,
+                    "status": "not_found",
+                    "message": not_found_log,
+                    "operation": "delete_empty_dir"
                 })
-                
+            
             return False
     except Exception as e:
-        error_log = f"删除目录失败: {str(e)}"
+        error_log = f"删除目录失败: {path}, 错误: {str(e)}"
         print(error_log)
         print(f"错误类型: {type(e)}")
         print(f"错误堆栈: {traceback.format_exc()}")
@@ -228,29 +207,31 @@ def safe_remove_empty_dir(path, log_to=None):
         # 如果提供了日志列表，记录操作
         if log_to is not None and isinstance(log_to, list):
             log_to.append({
-                "file": path,
+                "directory": path,
                 "status": "error",
                 "message": error_log,
-                "operation": "delete_dir",
+                "operation": "delete_empty_dir",
                 "error": str(e)
             })
-            
+        
         return False
 
-# 获取文件大小的辅助函数
+# 安全获取文件大小的辅助函数
 def safe_get_file_size(path):
     """
     安全地获取文件大小，支持长路径
+    
+    Args:
+        path: 文件路径
+        
+    Returns:
+        int: 文件大小（字节），如果文件不存在则返回0
     """
     long_path = get_long_path(path)
     try:
         if os.path.exists(long_path) and os.path.isfile(long_path):
             return os.path.getsize(long_path)
-        else:
-            print(f"文件不存在或不是文件，无法获取大小: {path}")
-            return -1
+        return 0
     except Exception as e:
-        print(f"获取文件大小失败: {str(e)}")
-        print(f"错误类型: {type(e)}")
-        print(f"错误堆栈: {traceback.format_exc()}")
-        return -1 
+        print(f"获取文件大小失败: {path}, 错误: {str(e)}")
+        return 0 

@@ -1,0 +1,42 @@
+{
+  "llm_config": {
+    "provider": "openai",
+    "model": "gpt-4",
+    "api_key": "",
+    "base_url": "https://api.openai.com/v1",
+    "rate_limit": 60,
+    "batch_size": 10
+  },
+  "tmdb_config": {
+    "api_key": "",
+    "rate_limit": 40,
+    "language": "en-US"
+  },
+  "media_config": {
+    "libraries": [
+      {
+        "name": "Movies",
+        "path": "/path/to/movies",
+        "type": "movie",
+        "naming_template": "{title} ({year})"
+      },
+      {
+        "name": "TV Shows",
+        "path": "/path/to/tvshows",
+        "type": "tv",
+        "naming_template": "{title}/Season {season:02d}/{title} - S{season:02d}E{episode:02d} - {episode_title}"
+      }
+    ],
+    "supported_extensions": [
+      ".mp4",
+      ".mkv",
+      ".avi",
+      ".m4v"
+    ]
+  },
+  "basic_config": {
+    "proxy_url": "",
+    "debug_mode": false,
+    "log_level": "INFO"
+  }
+} 

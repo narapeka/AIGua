@@ -2,16 +2,18 @@ from typing import List, Dict, Optional
 import os
 import re
 from datetime import datetime
-from ..models.media.movie_models import Movie, MovieFile
+from ..models.media.movie_model import Movie, MovieFile
 from ..core.config import ConfigManager
-from ..core.tmdb import TMDBClient
+from ..services.tmdb_service import TMDBService
 
 class MovieService:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
-        self.media_extensions = config_manager.settings.media_extension.split(';')
-        self.subtitle_extensions = config_manager.settings.subtitle_extension.split(';')
-        self.tmdb_client = TMDBClient(config_manager)
+        self.tmdb_service = TMDBService(config_manager)
+        self.settings = config_manager.settings
+        self.media_config = self.settings.media_config
+        self.movie_extensions = self.media_config.movie_extensions
+        self.subtitle_extensions = self.media_config.subtitle_extensions
 
     async def scan_directory(self, root_path: str) -> List[Movie]:
         """Scan directory and build movie structure"""
@@ -32,12 +34,10 @@ class MovieService:
     async def _identify_movie_from_directory(self, directory_path: str) -> Optional[Dict]:
         """Try to identify movie from directory name using TMDB"""
         directory_name = os.path.basename(directory_path)
-        # Remove common movie indicators
-        clean_name = re.sub(r'\([0-9]{4}\)|\[.*?\]|\(.*?\)', '', directory_name).strip()
-        # Search TMDB for the movie
-        results = await self.tmdb_client.search_movie(clean_name)
-        if results and len(results) > 0:
-            return results[0]
+        # Use the centralized TMDB service to identify the movie
+        result = await self.tmdb_service.identify_media_from_name(directory_name, "movie")
+        if result and result["type"] == "movie":
+            return result["data"]
         return None
 
     async def _scan_movie_directory(self, directory_path: str, movie_info: Dict) -> Movie:
@@ -56,7 +56,7 @@ class MovieService:
         # Find the main media file
         media_file = next(
             (f for f in files if any(f.lower().endswith(ext.lower()) 
-                                   for ext in self.media_extensions)),
+                                   for ext in self.movie_extensions)),
             None
         )
         
@@ -98,7 +98,7 @@ class MovieService:
     async def _get_movie_info(self, movie_id: str) -> Optional[Dict]:
         """Get movie information from TMDB"""
         try:
-            return await self.tmdb_client.get_movie(movie_id)
+            return await self.tmdb_service.get_movie(movie_id)
         except Exception as e:
             print(f"Error getting movie info: {e}")
             return None

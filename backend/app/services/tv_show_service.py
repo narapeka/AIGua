@@ -2,16 +2,18 @@ from typing import List, Dict, Optional
 import os
 import re
 from datetime import datetime
-from ..models.media.tv_models import TVShow, TVSeason, TVEpisode
+from ..models.media.tv_show_model import TVShow, TVSeason, TVEpisode
 from ..core.config import ConfigManager
-from ..core.tmdb import TMDBClient
+from ..services.tmdb_service import TMDBService
 
 class TVShowService:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
-        self.media_extensions = config_manager.settings.media_extension.split(';')
-        self.subtitle_extensions = config_manager.settings.subtitle_extension.split(';')
-        self.tmdb_client = TMDBClient(config_manager)
+        self.tmdb_service = TMDBService(config_manager)
+        self.settings = config_manager.settings
+        self.media_config = self.settings.media_config
+        self.tv_extensions = self.media_config.tv_extensions
+        self.subtitle_extensions = self.media_config.subtitle_extensions
 
     async def scan_directory(self, root_path: str) -> TVShow:
         """Scan directory and build TV show structure"""
@@ -40,12 +42,10 @@ class TVShowService:
     async def _identify_show_from_directory(self, directory_path: str) -> Optional[Dict]:
         """Try to identify TV show from directory name using TMDB"""
         directory_name = os.path.basename(directory_path)
-        # Remove common TV show indicators
-        clean_name = re.sub(r'\([0-9]{4}\)|\[.*?\]|\(.*?\)', '', directory_name).strip()
-        # Search TMDB for the show
-        results = await self.tmdb_client.search_tv(clean_name)
-        if results and len(results) > 0:
-            return results[0]
+        # Use the centralized TMDB service to identify the show
+        result = await self.tmdb_service.identify_media_from_name(directory_name, "tv")
+        if result and result["type"] == "tv":
+            return result["data"]
         return None
 
     async def _scan_season_directory(self, season_number: int, season_path: str) -> TVSeason:
@@ -85,7 +85,7 @@ class TVShowService:
         # Find the main media file
         media_file = next(
             (f for f in files if any(f.lower().endswith(ext.lower()) 
-                                   for ext in self.media_extensions)),
+                                   for ext in self.tv_extensions)),
             None
         )
         
@@ -131,7 +131,7 @@ class TVShowService:
     async def _get_season_info(self, show_id: str, season_number: int) -> Optional[Dict]:
         """Get season information from TMDB"""
         try:
-            return await self.tmdb_client.get_tv_season(show_id, season_number)
+            return await self.tmdb_service.get_tv_season(show_id, season_number)
         except Exception as e:
             print(f"Error getting season info: {e}")
             return None
@@ -145,7 +145,7 @@ class TVShowService:
                 return None
             
             # Get episode info from TMDB
-            return await self.tmdb_client.get_tv_episode(show_id, season_number, episode_number)
+            return await self.tmdb_service.get_tv_episode(show_id, season_number, episode_number)
         except Exception as e:
             print(f"Error identifying episode: {e}")
             return None
