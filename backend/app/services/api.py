@@ -156,7 +156,7 @@ class GrokAPI:
                 user_prompt += f"{i}. {filename} (类型: {media_type_text})\n"
             
             payload = {
-                "model": "grok-2-latest",
+                "model": "grok-4-fast-non-reasoning",
                 "messages": [
                     {
                         "role": "system",
@@ -271,9 +271,29 @@ class GrokAPI:
                                         for item in parsed_data:
                                             if isinstance(item, dict):
                                                 # 尝试不同的键名
-                                                chinese_title = item.get('中文名', '') or item.get('chinese_title', '') or item.get('chinese', '')
-                                                english_title = item.get('英文名', '') or item.get('english_title', '') or item.get('english', '')
-                                                year = item.get('年份', '') or item.get('year', '')
+                                                chinese_title = (
+                                                    item.get('中文名', '')
+                                                    or item.get('中文标题', '')
+                                                    or item.get('chinese_title', '')
+                                                    or item.get('chinese_name', '')
+                                                    or item.get('title_cn', '')
+                                                    or item.get('name_cn', '')
+                                                    or item.get('chinese', '')
+                                                )
+                                                english_title = (
+                                                    item.get('英文名', '')
+                                                    or item.get('英文标题', '')
+                                                    or item.get('english_title', '')
+                                                    or item.get('english_name', '')
+                                                    or item.get('title_en', '')
+                                                    or item.get('name_en', '')
+                                                    or item.get('english', '')
+                                                )
+                                                year = (
+                                                    item.get('年份', '')
+                                                    or item.get('上映年份', '')
+                                                    or item.get('year', '')
+                                                )
                                                 
                                                 results.append({
                                                     'chinese_title': chinese_title,
@@ -408,11 +428,11 @@ class TMDBAPI:
         # 初始化统计对象
         self.stats = APIStats("TMDB")
 
-    async def search_movie(self, title: str, year: str = None) -> List[Dict]:
+    async def search_movie(self, title: str, year: Optional[str] = None, language: Optional[str] = None) -> List[Dict]:
         """Search movie on TMDB and return a list of search results."""
         params = {
             "api_key": self.api_key,
-            "language": "zh-CN",
+            "language": language or "zh-CN",
             "query": title,
             "include_adult": "false"
         }
@@ -803,12 +823,13 @@ class MediaInfoService:
                     
                     # 尝试在 TMDB 上查找电影
                     tmdb_movies = []
+                    language = None
                     if chinese_title and year:
                         print(f"使用中文名搜索 TMDB：{chinese_title} ({year})")  # 添加日志
-                        tmdb_movies = await self.tmdb_api.search_movie(chinese_title, year)
+                        tmdb_movies = await self.tmdb_api.search_movie(chinese_title, year, language)
                     elif english_title and year:
                         print(f"使用英文名搜索 TMDB：{english_title} ({year})")  # 添加日志
-                        tmdb_movies = await self.tmdb_api.search_movie(english_title, year)
+                        tmdb_movies = await self.tmdb_api.search_movie(english_title, year, language)
                     
                     # 获取 TMDB ID
                     tmdb_id = None
@@ -1079,7 +1100,7 @@ class MediaInfoService:
             # 优先使用中文名搜索，如果有年份则加上年份
             if chinese_title:
                 print(f"使用中文名搜索 TMDB：{chinese_title}" + (f" ({year})" if year else ""))
-                tmdb_movies = await self.tmdb_api.search_movie(chinese_title, year if year else None)
+            tmdb_movies = await self.tmdb_api.search_movie(chinese_title, year if year else None)
             
             # 如果没有结果，尝试英文名搜索
             if (not tmdb_movies or len(tmdb_movies) == 0) and english_title:

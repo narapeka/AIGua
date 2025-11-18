@@ -30,6 +30,7 @@ class TMDBInfo(BaseModel):
 class SearchTMDBRequest(BaseModel):
     query: str
     year: str = None
+    language: str = None
     file_path: str
     movie_id: int = None  # Optional movie ID if a specific movie is selected
 
@@ -50,9 +51,10 @@ async def search_tmdb(request: SearchTMDBRequest):
         query = request.query
         year = request.year
         file_path = request.file_path
+        language = request.language
         movie_id = request.movie_id
         
-        print(f"手动搜索TMDB: 查询={query}, 年份={year}, 文件路径={file_path}, 电影ID={movie_id}")
+        print(f"手动搜索TMDB: 查询={query}, 年份={year}, 语言={language}, 文件路径={file_path}, 电影ID={movie_id}")
         
         if not file_path:
             print("错误: 缺少文件路径参数")
@@ -139,9 +141,9 @@ async def search_tmdb(request: SearchTMDBRequest):
                 # 如果IMDB ID搜索失败，尝试使用常规搜索
                 print(f"IMDB ID搜索失败，尝试使用常规搜索: {query}")
                 if year and year.strip():
-                    movies = await tmdb_api.search_movie(query, year)
+                    movies = await tmdb_api.search_movie(query, year, language)
                 else:
-                    movies = await tmdb_api.search_movie(query)
+                    movies = await tmdb_api.search_movie(query, language=language)
                 
                 if not movies:
                     print("\n" + "="*80)
@@ -176,9 +178,9 @@ async def search_tmdb(request: SearchTMDBRequest):
                 # 如果IMDB ID搜索返回不完整数据，尝试使用常规搜索
                 print(f"IMDB ID搜索返回不完整数据，尝试使用常规搜索: {query}")
                 if year and year.strip():
-                    movies = await tmdb_api.search_movie(query, year)
+                    movies = await tmdb_api.search_movie(query, year, language)
                 else:
-                    movies = await tmdb_api.search_movie(query)
+                    movies = await tmdb_api.search_movie(query, language=language)
                 
                 if not movies:
                     print("\n" + "="*80)
@@ -228,9 +230,9 @@ async def search_tmdb(request: SearchTMDBRequest):
         
         # 常规电影搜索
         if year and year.strip():
-            movies = await tmdb_api.search_movie(query, year)
+            movies = await tmdb_api.search_movie(query, year, language)
         else:
-            movies = await tmdb_api.search_movie(query)
+            movies = await tmdb_api.search_movie(query, language=language)
         
         if not movies:
             # 输出TMDB API统计信息

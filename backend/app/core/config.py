@@ -99,3 +99,8 @@ class ConfigManager:
 # Create a global config manager instance
 config_manager = ConfigManager()
 settings = config_manager.settings 
+
+
+def get_config_manager() -> ConfigManager:
+    """FastAPI dependency helper returning the singleton config manager."""
+    return config_manager

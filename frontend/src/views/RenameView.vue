@@ -193,6 +193,20 @@
         <el-form-item label="年份">
           <el-input v-model="identifyForm.year" placeholder="年份 (可选)" @keyup.enter="searchTMDB"></el-input>
         </el-form-item>
+        <el-form-item label="语言">
+          <el-select
+            v-model="identifyForm.language"
+            placeholder="选择语言"
+            size="default"
+            style="width: 200px"
+          >
+            <el-option label="zh" value="zh" />
+            <el-option label="zh-CN" value="zh-CN" />
+            <el-option label="zh-HK" value="zh-HK" />
+            <el-option label="zh-SG" value="zh-SG" />
+            <el-option label="zh-TW" value="zh-TW" />
+          </el-select>
+        </el-form-item>
       </el-form>
       
       <!-- 搜索结果 -->
@@ -328,7 +342,9 @@ export default {
     const expandedLibraries = ref({})  // 存储每个媒体库的展开状态
     const tableRef = ref(null)
     const identifyDialogVisible = ref(false)
-    const identifyForm = ref({})
+    const identifyForm = ref({
+      language: 'zh-CN'
+    })
     const searching = ref(false)
     const showResults = ref(false)
     const searchResults = ref([])
@@ -936,6 +952,7 @@ export default {
       identifyDialogVisible.value = true
       // 如果有TMDB数据，预填充电影中文名
       identifyForm.value = {
+        ...identifyForm.value,
         query: row.tmdb && row.tmdb.title ? row.tmdb.title : normalizedFileName,
         year: row.tmdb && row.tmdb.year ? row.tmdb.year.toString() : extractedYear,
         filePath: row.original_path  // 保存文件路径以便后续更新
@@ -972,11 +989,13 @@ export default {
         showResults.value = false
         selectedMovieId.value = null
         
-        addLog(`搜索TMDB: ${identifyForm.value.query}${identifyForm.value.year ? ` (${identifyForm.value.year})` : ''}`)
+        const selectedLanguage = identifyForm.value.language ? `, 语言: ${identifyForm.value.language}` : ''
+        addLog(`搜索TMDB: ${identifyForm.value.query}${identifyForm.value.year ? ` (${identifyForm.value.year})` : ''}${selectedLanguage}`)
         
         const response = await api.post('/files/search_tmdb', {
           query: identifyForm.value.query,
           year: identifyForm.value.year,
+          language: identifyForm.value.language,
           file_path: identifyForm.value.filePath
         })
         
@@ -1249,70 +1268,61 @@ export default {
     
     // 判断是否是高度可信的识别结果
     const isHighlyReliableMatch = (row) => {
-      // 如果没有tmdb数据或原始文件名，则不可能是高度可信的
-      if (!row.tmdb || !row.tmdb.title || !row.original_path || !row.label) {
+      // 必须具备TMDB标题、年份以及原始路径信息
+      if (!row.tmdb || !row.tmdb.title || !row.tmdb.year || !row.original_path) {
         return false
       }
-      
-      // 获取tmdb标题，去除特殊字符
-      const tmdbTitle = row.tmdb.title
-        .replace(/[(){}[\].,\/#!$%\^&\*;:{}=\-_`~]/g, '')
-        .toLowerCase()
-        .trim()
-      
-      // 获取原始文件名（只取文件名部分，不含路径）
-      let originalFileName = row.label
-      // 如果包含路径分隔符，只取最后部分
-      if (originalFileName.includes('/')) {
-        originalFileName = originalFileName.split('/').pop()
-      } else if (originalFileName.includes('\\')) {
-        originalFileName = originalFileName.split('\\').pop()
+
+      const normalizeForMatch = (value) => {
+        if (!value) return ''
+        return value
+          .toString()
+          .normalize('NFKC')
+          .replace(/[^a-z0-9\u4e00-\u9fa5]+/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .toLowerCase()
+          .trim()
       }
-      
-      // 移除文件扩展名
-      originalFileName = originalFileName.replace(/\.[^/.]+$/, "")
-      // 转为小写并去除特殊字符
-      originalFileName = originalFileName
-        .replace(/[(){}[\].,\/#!$%\^&\*;:{}=\-_`~]/g, '')
-        .toLowerCase()
-        .trim()
-      
-      // 检查文件名部分是否匹配
-      const fileNameMatch = originalFileName.includes(tmdbTitle) || tmdbTitle.includes(originalFileName)
-      
-      // 如果文件名匹配，则直接返回true
-      if (fileNameMatch) return true
-      
-      // 新增：检查目录路径部分是否匹配
-      // 获取目录路径部分（排除文件名）
-      let directoryPath = row.label
-      
-      // 提取目录部分（去除文件名）
+
+      const normalizedTitle = normalizeForMatch(row.tmdb.title)
+      const yearTokenMatch = (row.tmdb.year ?? '').toString().match(/\d{4}/)
+      const normalizedYear = yearTokenMatch ? yearTokenMatch[0] : ''
+
+      if (!normalizedTitle || !normalizedYear) {
+        return false
+      }
+
+      // 提取文件名（不含路径与扩展名）
+      let fileNameSource = row.label || row.original_path
+      if (fileNameSource.includes('/')) {
+        fileNameSource = fileNameSource.split('/').pop()
+      } else if (fileNameSource.includes('\\')) {
+        fileNameSource = fileNameSource.split('\\').pop()
+      }
+      fileNameSource = fileNameSource.replace(/\.[^/.]+$/, '')
+
+      const normalizedFileName = normalizeForMatch(fileNameSource)
+
+      // 目录路径部分（去除文件名）
+      let directoryPath = row.label || row.original_path
       if (directoryPath.includes('/')) {
-        // 对于Unix风格路径
         directoryPath = directoryPath.substring(0, directoryPath.lastIndexOf('/'))
       } else if (directoryPath.includes('\\')) {
-        // 对于Windows风格路径
         directoryPath = directoryPath.substring(0, directoryPath.lastIndexOf('\\'))
       } else {
-        // 没有目录部分
-        directoryPath = ""
+        directoryPath = ''
       }
-      
-      // 如果没有目录部分，则使用文件名的判断结果
-      if (!directoryPath) return fileNameMatch
-      
-      // 规范化目录名（去除特殊字符，转为小写）
-      const normalizedDirPath = directoryPath
-        .replace(/[(){}[\].,\/#!$%\^&\*;:{}=\-_`~]/g, '')
-        .toLowerCase()
-        .trim()
-      
-      // 检查目录部分是否匹配TMDB标题
-      const dirPathMatch = normalizedDirPath.includes(tmdbTitle) || tmdbTitle.includes(normalizedDirPath)
-      
-      // 返回文件名匹配或目录匹配的结果
-      return fileNameMatch || dirPathMatch
+      const normalizedDirPath = normalizeForMatch(directoryPath)
+
+      // 完整原始路径
+      const normalizedOriginalPath = normalizeForMatch(row.original_path)
+
+      const searchSources = [normalizedFileName, normalizedDirPath, normalizedOriginalPath].filter(Boolean)
+
+      const titleMatch = searchSources.some((source) => source.includes(normalizedTitle))
+      const yearMatch = searchSources.some((source) => source.includes(normalizedYear))
+
+      return titleMatch && yearMatch
     }
     
     // 获取按钮类型
