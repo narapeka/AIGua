@@ -836,16 +836,34 @@ class MediaInfoService:
                     if tmdb_movies and len(tmdb_movies) > 0:
                         # 使用第一个结果
                         first_movie = tmdb_movies[0]
-                        tmdb_id = first_movie["id"]
-                        print(f"找到 TMDB ID：{tmdb_id}")  # 添加日志
+                        tmdb_id_str = first_movie["id"]
+                        print(f"找到 TMDB ID（字符串）：{tmdb_id_str}")  # 添加日志
                         
-                        # 获取详细信息
-                        details = await self.tmdb_api.get_movie_details(tmdb_id)
-                        
-                        # 如果有官方中文标题，使用它
-                        if details.get("title"):
-                            chinese_title = details["title"]
-                            print(f"使用 TMDB 官方中文标题：{chinese_title}")  # 添加日志
+                        # 转换字符串ID为整数，用于验证
+                        try:
+                            tmdb_id_int = int(tmdb_id_str)
+                        except (ValueError, TypeError) as e:
+                            print(f"警告: 无法将TMDB ID转换为整数: {tmdb_id_str}, 错误: {e}")
+                            tmdb_id = None
+                        else:
+                            # 验证ID是否存在 - 调用get_movie_details验证
+                            details = await self.tmdb_api.get_movie_details(tmdb_id_int)
+                            
+                            # 检查是否返回有效数据（非空字典且包含id字段）
+                            if details and isinstance(details, dict) and details.get("id"):
+                                # ID验证成功，使用字符串ID
+                                tmdb_id = tmdb_id_str
+                                print(f"TMDB ID验证成功：{tmdb_id}")  # 添加日志
+                                
+                                # 如果有官方中文标题，使用它
+                                if details.get("title"):
+                                    chinese_title = details["title"]
+                                    print(f"使用 TMDB 官方中文标题：{chinese_title}")  # 添加日志
+                            else:
+                                # ID验证失败，不存储无效ID
+                                print(f"警告: TMDB ID {tmdb_id_int} 验证失败，返回的数据无效或为空")
+                                logging.warning(f"TMDB ID {tmdb_id_int} 验证失败，返回的数据无效或为空")
+                                tmdb_id = None
                     
                     # 生成新的文件名
                     new_name = self.generate_new_filename(chinese_title, english_title, year, tmdb_id)
@@ -1113,30 +1131,55 @@ class MediaInfoService:
             if tmdb_movies and len(tmdb_movies) > 0:
                 # 使用第一个结果
                 first_movie = tmdb_movies[0]
-                tmdb_id = first_movie["id"]
+                tmdb_id_str = first_movie["id"]
                 
-                # 检查search返回的结果是否已经包含中文标题
-                # search_movie方法在搜索时已经指定language=zh-CN
-                # 如果搜索结果中已有中文标题，直接使用，避免额外的API调用
-                if first_movie.get("title"):
-                    chinese_title = first_movie["title"]
-                    print(f"从搜索结果使用TMDB中文标题：{chinese_title}")
+                # 转换字符串ID为整数，用于验证
+                try:
+                    tmdb_id_int = int(tmdb_id_str)
+                except (ValueError, TypeError) as e:
+                    print(f"警告: 无法将TMDB ID转换为整数: {tmdb_id_str}, 错误: {e}")
+                    tmdb_id = None
                 else:
-                    # 如果search结果中没有中文标题，则需要再次调用get_movie_details
-                    details = await self.tmdb_api.get_movie_details(tmdb_id)
-                    if details.get("title"):
-                        chinese_title = details["title"]
-                        print(f"从详情使用TMDB官方中文标题：{chinese_title}")
-                
-                # 使用TMDB返回的年份（如果有）
-                if first_movie.get("year"):
-                    year = first_movie["year"]
-                    print(f"使用TMDB返回的年份：{year}")
-                
-                # 只有在成功获取TMDB ID的情况下才生成新文件名
-                if tmdb_id:
-                    new_name = self.generate_new_filename(chinese_title, english_title, year, tmdb_id)
-                    print(f"生成的新文件名：{new_name}")
+                    # 验证ID是否存在 - 调用get_movie_details验证
+                    details = await self.tmdb_api.get_movie_details(tmdb_id_int)
+                    
+                    # 检查是否返回有效数据（非空字典）
+                    if details and isinstance(details, dict) and details.get("id"):
+                        # ID验证成功，使用字符串ID（保持与API返回格式一致）
+                        tmdb_id = tmdb_id_str
+                        
+                        # 检查search返回的结果是否已经包含中文标题
+                        # search_movie方法在搜索时已经指定language=zh-CN
+                        # 如果搜索结果中已有中文标题，直接使用，避免额外的API调用
+                        if first_movie.get("title"):
+                            chinese_title = first_movie["title"]
+                            print(f"从搜索结果使用TMDB中文标题：{chinese_title}")
+                        elif details.get("title"):
+                            # 如果search结果中没有中文标题，使用详情中的标题
+                            chinese_title = details["title"]
+                            print(f"从详情使用TMDB官方中文标题：{chinese_title}")
+                        
+                        # 使用TMDB返回的年份（如果有）
+                        if first_movie.get("year"):
+                            year = first_movie["year"]
+                            print(f"使用TMDB返回的年份：{year}")
+                        elif details.get("release_date"):
+                            # 从详情中提取年份
+                            release_date = details.get("release_date", "")
+                            if release_date and len(release_date) >= 4:
+                                year_str = release_date[:4]
+                                if year_str.isdigit() and len(year_str) == 4:
+                                    year = year_str
+                                    print(f"从详情使用TMDB返回的年份：{year}")
+                        
+                        # 只有在成功验证TMDB ID的情况下才生成新文件名
+                        new_name = self.generate_new_filename(chinese_title, english_title, year, tmdb_id)
+                        print(f"生成的新文件名：{new_name}")
+                    else:
+                        # ID验证失败，不存储无效ID
+                        print(f"警告: TMDB ID {tmdb_id_int} 验证失败，返回的数据无效或为空")
+                        logging.warning(f"TMDB ID {tmdb_id_int} 验证失败，返回的数据无效或为空")
+                        tmdb_id = None
             
             return {
                 "path": filename,

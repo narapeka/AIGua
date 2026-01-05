@@ -124,17 +124,28 @@ async def identify_files(files: List[FileInfo]):
         simplified_results = await new_media_service.process_filenames_parallel(simplified_paths, file_media_types=file_media_types, print_stats=False)
         print(f"并行识别完成，得到 {len(simplified_results)} 个结果")
         
-        # 将结果映射回原始路径
-        results = []
+        # 将结果映射回原始路径，并创建路径到结果的映射字典
+        results_by_path = {}
         for simplified_path, result in zip(simplified_paths, simplified_results):
             original_path = path_mapping[simplified_path]
             # 确保结果中使用原始路径
             result["original_path"] = original_path
             result["path"] = original_path
-            results.append(result)
+            # 使用原始路径作为键存储结果，确保可以正确匹配
+            results_by_path[original_path] = result
         
-        # 更新文件信息
-        for file, result in zip(files, results):
+        # 更新文件信息 - 使用路径匹配而不是数组位置
+        for file in files:
+            # 通过original_path查找对应的结果
+            result = results_by_path.get(file.original_path)
+            
+            # 如果没有找到结果，说明该文件识别失败或没有结果
+            if not result:
+                print(f"文件 {file.original_path} 没有找到对应的识别结果，跳过处理")
+                file.new_name = ""
+                file.new_sub_folder = ""
+                file.tmdb = None
+                continue
             # 只有在成功获取到TMDB ID且没有错误的情况下才生成新文件名
             if "error" not in result and result.get("tmdb_id"):
                 # 使用 TMDB 官方中文标题
@@ -147,7 +158,7 @@ async def identify_files(files: List[FileInfo]):
                     print(f"文件 {file.original_path} 虽然获取到TMDB ID，但缺少有效年份信息，无法生成标准命名")
                     file.new_name = ""
                     file.new_sub_folder = ""
-                    file.tmdb = TMDBInfo(
+                    tmdb_info = TMDBInfo(
                         id=str(result['tmdb_id']) if result['tmdb_id'] is not None else None,
                         title=chinese_title if chinese_title is not None else None,
                         original_title=result['english_title'] if result['english_title'] is not None else None,
@@ -157,6 +168,11 @@ async def identify_files(files: List[FileInfo]):
                         vote_average=result.get('vote_average'),
                         popularity=result.get('popularity')
                     )
+                    # Convert TMDBInfo to dict to match FileInfo model expectation
+                    try:
+                        file.tmdb = tmdb_info.model_dump()  # Pydantic v2
+                    except AttributeError:
+                        file.tmdb = tmdb_info.dict()  # Pydantic v1
                     file.error = "缺少有效年份信息"
                     continue
                 
@@ -178,7 +194,7 @@ async def identify_files(files: List[FileInfo]):
                 # 更新文件信息
                 file.new_name = file_name
                 file.new_sub_folder = folder_name
-                file.tmdb = TMDBInfo(
+                tmdb_info = TMDBInfo(
                     id=str(result['tmdb_id']) if result['tmdb_id'] is not None else None,
                     title=chinese_title if chinese_title is not None else None,
                     original_title=result['english_title'] if result['english_title'] is not None else None,
@@ -188,6 +204,11 @@ async def identify_files(files: List[FileInfo]):
                     vote_average=result.get('vote_average'),
                     popularity=result.get('popularity')
                 )
+                # Convert TMDBInfo to dict to match FileInfo model expectation
+                try:
+                    file.tmdb = tmdb_info.model_dump()  # Pydantic v2
+                except AttributeError:
+                    file.tmdb = tmdb_info.dict()  # Pydantic v1
             else:
                 # 没有TMDB ID或有错误，不生成新文件名
                 print(f"文件 {file.original_path} 未能成功识别，不生成新文件名")
