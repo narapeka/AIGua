@@ -1041,8 +1041,22 @@ export default {
         // 添加短暂延迟使视觉反馈更明显
         await new Promise(resolve => setTimeout(resolve, 200))
         
-        // 不再调用API，直接使用已经有的电影数据
-        const movieInfo = movie
+        // 通过 get_movie_by_id 获取电影详情（含中文标题：若原标题无中文则从 alternative_titles/translations 取）
+        let movieInfo = movie
+        if (identifyForm.value.filePath && movie.id) {
+          try {
+            const response = await api.post('/files/get_movie_by_id', {
+              movie_id: typeof movie.id === 'string' ? parseInt(movie.id, 10) : movie.id,
+              file_path: identifyForm.value.filePath
+            })
+            if (response.data && response.data.success && response.data.results && response.data.results.length > 0) {
+              movieInfo = response.data.results[0]
+              addLog(`已使用 TMDB 中文名: ${movieInfo.title}`)
+            }
+          } catch (err) {
+            console.warn('get_movie_by_id 失败，使用搜索结果数据', err)
+          }
+        }
         
         // 检查是否有年份，没有年份则提示用户并取消操作
         if (!movieInfo.year) {
@@ -1052,13 +1066,15 @@ export default {
           return
         }
         
-        // 生成子文件夹名称
-        const folderName = `${movieInfo.title} (${movieInfo.year}) {tmdb-${movieInfo.id}}`
-        
-        // 移除检查是否有使用相同文件夹名的文件和添加序号后缀的逻辑
-        
-        // 生成文件名（不再添加后缀）
-        const baseFileName = `${movieInfo.title} (${movieInfo.year})`
+        // 移除非法路径字符（如 / * 等），用于文件夹和文件名
+        const sanitizePathComponent = (s) => {
+          if (!s || typeof s !== 'string') return s || ''
+          return s.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim()
+        }
+        // 生成子文件夹名称（使用含中文的 title），并移除非法字符
+        const folderName = sanitizePathComponent(`${movieInfo.title} (${movieInfo.year}) {tmdb-${movieInfo.id}}`)
+        // 生成文件名（不再添加后缀），并移除非法字符
+        const baseFileName = sanitizePathComponent(`${movieInfo.title} (${movieInfo.year})`)
         const fileExtension = getFileExtension(identifyForm.value.filePath)
         const fileName = `${baseFileName}${fileExtension}`
         

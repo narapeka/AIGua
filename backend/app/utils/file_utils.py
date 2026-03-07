@@ -1,8 +1,25 @@
 """File utilities for handling long paths and safe file operations."""
 import os
 import platform
+import re
 import traceback
 from typing import List, Optional, Dict, Any
+
+# Illegal characters for file names and folder names (Windows: \ / : * ? " < > |)
+ILLEGAL_PATH_CHARS = r'[\\/:*?"<>|]'
+
+
+def sanitize_path_component(name: str) -> str:
+    """
+    Remove illegal characters from a file or folder name so it is safe to use on disk.
+    Removes: \\ / : * ? " < > |
+    Also collapses multiple spaces and strips leading/trailing spaces.
+    """
+    if not name or not isinstance(name, str):
+        return name or ""
+    s = re.sub(ILLEGAL_PATH_CHARS, "", name)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 # 添加长路径支持函数
 def get_long_path(path):

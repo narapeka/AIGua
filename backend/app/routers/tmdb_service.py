@@ -89,6 +89,12 @@ async def search_tmdb(request: SearchTMDBRequest):
                 print(f"电影数据不完整: {movie}")
                 return {"success": False, "message": f"电影数据不完整，ID为 {movie_id} 的电影缺少必要信息"}
             
+            # 若标题不含中文，从 TMDB alternative_titles/translations 取中文名（与 aigua.tv 一致）
+            if chinese_title and not tmdb_api.is_chinese(chinese_title):
+                chinese_title = await tmdb_api.get_chinese_title_for_movie(chinese_title, movie_id)
+                if tmdb_api.is_chinese(chinese_title):
+                    print(f"使用 TMDB 中文名: {chinese_title}")
+            
             # 将单个电影转换为搜索结果格式（与常规搜索结果格式一致）
             movie_as_result = {
                 "id": tmdb_id,
@@ -312,6 +318,13 @@ async def get_movie_by_id(request: GetMovieByIdRequest):
             print(f"电影数据不完整: {movie}")
             return {"success": False, "message": f"电影数据不完整，ID为 {movie_id} 的电影缺少必要信息"}
         
+        # 若标题不含中文，从 TMDB alternative_titles/translations 取中文名（与 aigua.tv 一致）
+        if chinese_title and not tmdb_api.is_chinese(chinese_title):
+            movie_id_int = int(movie_id) if isinstance(movie_id, str) else movie_id
+            chinese_title = await tmdb_api.get_chinese_title_for_movie(chinese_title, movie_id_int)
+            if tmdb_api.is_chinese(chinese_title):
+                print(f"使用 TMDB 中文名: {chinese_title}")
+        
         print(f"成功获取电影信息: ID={tmdb_id}, 中文名={chinese_title}, 英文名={english_title}, 年份={year}")
         
         # 将单个电影转换为搜索结果格式（与常规搜索结果格式一致）
@@ -401,6 +414,13 @@ async def find_by_imdb_id(request: FindByImdbIdRequest):
         if not all([tmdb_id, chinese_title, english_title, year]):
             print(f"IMDB电影数据不完整: {movie}")
             return {"success": False, "message": f"电影数据不完整，IMDB ID为 {imdb_id} 的电影缺少必要信息"}
+        
+        # 若标题不含中文，从 TMDB alternative_titles/translations 取中文名（与 aigua.tv 一致）
+        if chinese_title and not tmdb_api.is_chinese(chinese_title):
+            movie_id_int = int(tmdb_id) if isinstance(tmdb_id, str) else tmdb_id
+            chinese_title = await tmdb_api.get_chinese_title_for_movie(chinese_title, movie_id_int)
+            if tmdb_api.is_chinese(chinese_title):
+                print(f"使用 TMDB 中文名: {chinese_title}")
         
         print(f"成功获取电影信息: ID={tmdb_id}, 中文名={chinese_title}, 英文名={english_title}, 年份={year}")
         

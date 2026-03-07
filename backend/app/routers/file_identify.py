@@ -176,11 +176,14 @@ async def identify_files(files: List[FileInfo]):
                     file.error = "缺少有效年份信息"
                     continue
                 
-                # 生成文件夹名
-                folder_name = f"{chinese_title} ({result['year']}) {{tmdb-{result['tmdb_id']}}}"
+                # 生成文件夹名（并移除非法路径字符）
+                from ..utils.file_utils import sanitize_path_component
+                folder_name = sanitize_path_component(
+                    f"{chinese_title} ({result['year']}) {{tmdb-{result['tmdb_id']}}}"
+                )
                 
                 # 直接生成文件名而不添加序号
-                base_file_name = f"{chinese_title} ({result['year']})"
+                base_file_name = sanitize_path_component(f"{chinese_title} ({result['year']})")
                 file_extension = os.path.splitext(file.original_path)[1]
                 file_name = f"{base_file_name}{file_extension}"
                 

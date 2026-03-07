@@ -1,5 +1,6 @@
 import aiohttp
 import json
+import re
 import ssl
 from typing import Dict, List, Optional
 from ..core.config import settings
@@ -137,17 +138,33 @@ class GrokAPI:
             is_movie_batch = all(media_type == "movie" for media_type in media_types)
             is_tv_batch = all(media_type == "tv" for media_type in media_types)
             
+            # 规定 Grok 必须返回的 JSON 结构，便于解析
+            json_format_instruction = (
+                '你必须只返回一个 JSON 对象，不要返回任何其他文字或说明。'
+                '格式：{"movies": [{"chinese_name": "中文标题", "english_name": "English title", "year": 2002}, ...]}。'
+                '要求：movies 为数组，长度必须与输入文件数量相同，且顺序与输入一一对应；'
+                '每项仅含三个字段（英文键名）：chinese_name、english_name、year（年份为数字或空字符串）。'
+            )
             # 根据媒体类型构建提示词
             if is_movie_batch:
-                system_prompt = "你是一个专业的电影信息解析助手。请解析电影文件名，返回JSON格式的电影信息，包含中文名、英文名和年份。请确保返回的是有效的JSON格式。请不要解析电视剧信息，只关注电影。"
-                user_prompt = "请解析以下电影文件名，返回JSON格式的电影信息，包含中文名、英文名和年份。\n\n"
+                system_prompt = (
+                    "你是一个专业的电影信息解析助手。请解析电影文件名，只关注电影，不要解析电视剧。"
+                    + json_format_instruction
+                )
+                user_prompt = "请解析以下电影文件名，按顺序为每个文件返回一条记录。\n\n"
             elif is_tv_batch:
-                system_prompt = "你是一个专业的电视剧信息解析助手。请解析电视剧文件名，返回JSON格式的电视剧信息，包含中文名、英文名和年份。请确保返回的是有效的JSON格式。请不要解析电影信息，只关注电视剧。"
-                user_prompt = "请解析以下电视剧文件名，返回JSON格式的电视剧信息，包含中文名、英文名和年份。\n\n"
+                system_prompt = (
+                    "你是一个专业的电视剧信息解析助手。请解析电视剧文件名，只关注电视剧，不要解析电影。"
+                    + json_format_instruction.replace('"movies"', '"tv_shows"')
+                )
+                user_prompt = "请解析以下电视剧文件名，按顺序为每个文件返回一条记录。\n\n"
             else:
                 # 混合类型批次
-                system_prompt = "你是一个专业的视频信息解析助手。请解析文件名，返回JSON格式的视频信息，包含中文名、英文名和年份。请确保返回的是有效的JSON格式。"
-                user_prompt = "请解析以下视频文件名，返回JSON格式的视频信息，包含中文名、英文名和年份。\n\n"
+                system_prompt = (
+                    "你是一个专业的视频信息解析助手。请解析文件名（电影或电视剧）。"
+                    + json_format_instruction.replace('"movies"', '"items"')
+                )
+                user_prompt = "请解析以下视频文件名，按顺序为每个文件返回一条记录。\n\n"
                 
             # 添加文件名到提示词
             for i, filename in enumerate(filenames, 1):
@@ -259,13 +276,28 @@ class GrokAPI:
                                     
                                     try:
                                         parsed_data = json.loads(json_str)
-                                        # 确保 parsed_data 是列表
+                                        # 确保 parsed_data 是列表，支持多种 Grok 返回格式
                                         if isinstance(parsed_data, dict):
-                                            parsed_data = [parsed_data]
+                                            # 格式1: {"movies": [...]} / {"tv_shows": [...]} / {"items": [...]}（与 prompt 约定一致）
+                                            list_found = None
+                                            for key in ("movies", "tv_shows", "items"):
+                                                if key in parsed_data and isinstance(parsed_data[key], list):
+                                                    list_found = parsed_data[key]
+                                                    break
+                                            if list_found is not None:
+                                                parsed_data = list_found
+                                            # 格式2: {"1": {"中文名": ...}, "2": {...}, ...}（兼容旧格式）
+                                            elif parsed_data and all(
+                                                str(k).isdigit() for k in parsed_data.keys()
+                                            ) and isinstance(next(iter(parsed_data.values()), None), dict):
+                                                keys_sorted = sorted(parsed_data.keys(), key=lambda x: int(x))
+                                                parsed_data = [parsed_data[k] for k in keys_sorted]
+                                            else:
+                                                parsed_data = [parsed_data]
                                         elif not isinstance(parsed_data, list):
                                             logging.error(f"解析的数据不是字典或列表: {parsed_data}")
                                             return []
-                                        
+
                                         # 转换键名为英文
                                         results = []
                                         for item in parsed_data:
@@ -590,6 +622,133 @@ class TMDBAPI:
             self.stats.add_error()
             return {}
 
+    async def get_movie_alternative_titles(self, movie_id: int) -> Dict:
+        """Get alternative titles for a movie (TMDB API: /movie/{id}/alternative_titles)."""
+        params = {"api_key": self.api_key}
+        try:
+            await self.rate_limiter.wait_for_token()
+            start_time = time.time()
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                try:
+                    async with session.get(
+                        f"{self.base_url}/movie/{movie_id}/alternative_titles",
+                        params=params,
+                        proxy=self.proxy,
+                        timeout=30
+                    ) as response:
+                        if response.status != 200:
+                            return {}
+                        result = await response.json()
+                        end_time = time.time()
+                        self.stats.add_call(end_time - start_time)
+                        return result
+                except Exception as e:
+                    logging.debug(f"get_movie_alternative_titles failed: {e}")
+                    return {}
+        except Exception as e:
+            logging.debug(f"get_movie_alternative_titles failed: {e}")
+            return {}
+
+    async def get_movie_translations(self, movie_id: int) -> Dict:
+        """Get translations for a movie (TMDB API: /movie/{id}/translations)."""
+        params = {"api_key": self.api_key}
+        try:
+            await self.rate_limiter.wait_for_token()
+            start_time = time.time()
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                try:
+                    async with session.get(
+                        f"{self.base_url}/movie/{movie_id}/translations",
+                        params=params,
+                        proxy=self.proxy,
+                        timeout=30
+                    ) as response:
+                        if response.status != 200:
+                            return {}
+                        result = await response.json()
+                        end_time = time.time()
+                        self.stats.add_call(end_time - start_time)
+                        return result
+                except Exception as e:
+                    logging.debug(f"get_movie_translations failed: {e}")
+                    return {}
+        except Exception as e:
+            logging.debug(f"get_movie_translations failed: {e}")
+            return {}
+
+    @staticmethod
+    def is_chinese(word: str) -> bool:
+        """Check if text contains Chinese characters (refer to aigua.tv logic)."""
+        if not word:
+            return False
+        if isinstance(word, list):
+            word = " ".join(word)
+        return bool(re.search(r'[\u4e00-\u9fff]', word))
+
+    def _get_chinese_name_from_movie_alternative_titles(self, tmdb_info: Dict) -> Optional[str]:
+        """Get Chinese name from movie alternative_titles with iso_3166_1 = 'CN' (refer to aigua.tv)."""
+        # Movie API: alternative_titles.titles[] with .iso_3166_1, .title
+        titles = tmdb_info.get("alternative_titles", {}).get("titles", [])
+        for alt in titles:
+            if alt.get("iso_3166_1") == "CN" and alt.get("title"):
+                logging.debug(f"  Found Chinese name from movie alternative_titles: '{alt['title']}' (iso_3166_1=CN)")
+                return alt["title"]
+        return None
+
+    def _get_chinese_name_from_movie_translations(self, tmdb_info: Dict) -> Optional[str]:
+        """Get Chinese name from movie translations with iso_3166_1 = 'CN' (refer to aigua.tv)."""
+        # Movie API: translations.translations[] with .iso_3166_1, .data.title
+        translations = tmdb_info.get("translations", {}).get("translations", [])
+        for t in translations:
+            if t.get("iso_3166_1") == "CN":
+                name = t.get("data", {}).get("title")
+                if name:
+                    logging.debug(f"  Found Chinese name from movie translations: '{name}' (iso_3166_1=CN)")
+                    return name
+        # Fallback: zh language
+        for t in translations:
+            if t.get("iso_639_1") == "zh":
+                name = t.get("data", {}).get("title")
+                if name:
+                    logging.debug(f"  Found Chinese name from movie translations: '{name}' (iso_639_1=zh)")
+                    return name
+        return None
+
+    async def get_chinese_title_for_movie(self, current_title: str, movie_id: int) -> str:
+        """
+        If current_title contains Chinese, return it. Otherwise fetch alternative_titles and
+        translations and return Chinese name for CN (refer to aigua.tv _ensure_chinese_name).
+        """
+        if not current_title:
+            return current_title
+        if self.is_chinese(current_title):
+            logging.debug(f"  Title '{current_title}' already contains Chinese, no need to replace")
+            return current_title
+        logging.info(f"  Title '{current_title}' has no Chinese, fetching alternative_titles/translations for Chinese name...")
+        try:
+            alt = await self.get_movie_alternative_titles(movie_id)
+            await asyncio.sleep(0.05)
+            trans = await self.get_movie_translations(movie_id)
+            tmdb_info = {"alternative_titles": alt, "translations": trans}
+            chinese_name = self._get_chinese_name_from_movie_alternative_titles(tmdb_info)
+            if not chinese_name:
+                chinese_name = self._get_chinese_name_from_movie_translations(tmdb_info)
+            if chinese_name:
+                logging.info(f"  → Using Chinese name from TMDB: '{chinese_name}'")
+                return chinese_name
+            logging.warning("  → No Chinese name found in alternative_titles or translations, keeping original title")
+        except Exception as e:
+            logging.warning(f"  → Failed to get Chinese name: {e}, keeping original title")
+        return current_title
+
     # 新增方法：根据ID获取电影
     async def get_movie_by_id(self, movie_id: int) -> Optional[Dict]:
         """Get movie by TMDB ID and return the movie data."""
@@ -796,7 +955,24 @@ class MediaInfoService:
         # 添加 TMDB ID 到标题后面
         title = f"{title} {{tmdb-{tmdb_id}}}"
         
-        return title
+        # 移除非法路径字符（如 / * 等）
+        from ..utils.file_utils import sanitize_path_component
+        return sanitize_path_component(title)
+
+    def _pick_best_movie_by_year(self, tmdb_movies: List[Dict], requested_year: str) -> Optional[Dict]:
+        """从 TMDB 搜索结果中优先选择年份与解析结果一致的电影，避免误匹配（如 重生 2004 vs 富江：重生 2001）。"""
+        if not tmdb_movies:
+            return None
+        requested_year_str = str(requested_year).strip() if requested_year else ""
+        if not requested_year_str:
+            return tmdb_movies[0]
+        for m in tmdb_movies:
+            y = m.get("year") or ""
+            if not y and m.get("release_date"):
+                y = str(m["release_date"])[:4]
+            if str(y).strip() == requested_year_str:
+                return m
+        return tmdb_movies[0]
 
     async def process_filenames(self, filenames: List[str]) -> List[Dict]:
         """Process multiple filenames to extract media information."""
@@ -831,11 +1007,12 @@ class MediaInfoService:
                         print(f"使用英文名搜索 TMDB：{english_title} ({year})")  # 添加日志
                         tmdb_movies = await self.tmdb_api.search_movie(english_title, year, language)
                     
-                    # 获取 TMDB ID
+                    # 获取 TMDB ID（优先选择年份与解析结果一致的电影，避免误匹配）
                     tmdb_id = None
                     if tmdb_movies and len(tmdb_movies) > 0:
-                        # 使用第一个结果
-                        first_movie = tmdb_movies[0]
+                        first_movie = self._pick_best_movie_by_year(tmdb_movies, year)
+                        if not first_movie:
+                            first_movie = tmdb_movies[0]
                         tmdb_id_str = first_movie["id"]
                         print(f"找到 TMDB ID（字符串）：{tmdb_id_str}")  # 添加日志
                         
@@ -859,6 +1036,13 @@ class MediaInfoService:
                                 if details.get("title"):
                                     chinese_title = details["title"]
                                     print(f"使用 TMDB 官方中文标题：{chinese_title}")  # 添加日志
+                                
+                                # 若目标文件名不含中文，则从 TMDB 的 alternative_titles/translations 取中文名（参考 aigua.tv）
+                                title_for_filename = chinese_title if chinese_title else english_title
+                                if title_for_filename and tmdb_id and not self.tmdb_api.is_chinese(title_for_filename):
+                                    chinese_title = await self.tmdb_api.get_chinese_title_for_movie(title_for_filename, tmdb_id_int)
+                                    if chinese_title != title_for_filename:
+                                        print(f"使用 TMDB 中文名作为文件名标题：{chinese_title}")
                             else:
                                 # ID验证失败，不存储无效ID
                                 print(f"警告: TMDB ID {tmdb_id_int} 验证失败，返回的数据无效或为空")
@@ -1125,12 +1309,13 @@ class MediaInfoService:
                 print(f"使用英文名搜索 TMDB：{english_title}" + (f" ({year})" if year else ""))
                 tmdb_movies = await self.tmdb_api.search_movie(english_title, year if year else None)
             
-            # 获取 TMDB ID和标题
+            # 获取 TMDB ID和标题（优先选择年份与解析结果一致的电影，避免误匹配）
             tmdb_id = None
             new_name = ""  # 默认为空字符串
             if tmdb_movies and len(tmdb_movies) > 0:
-                # 使用第一个结果
-                first_movie = tmdb_movies[0]
+                first_movie = self._pick_best_movie_by_year(tmdb_movies, year)
+                if not first_movie:
+                    first_movie = tmdb_movies[0]
                 tmdb_id_str = first_movie["id"]
                 
                 # 转换字符串ID为整数，用于验证
@@ -1171,6 +1356,13 @@ class MediaInfoService:
                                 if year_str.isdigit() and len(year_str) == 4:
                                     year = year_str
                                     print(f"从详情使用TMDB返回的年份：{year}")
+                        
+                        # 若目标文件名不含中文，则从 TMDB 的 alternative_titles/translations 取中文名（参考 aigua.tv）
+                        title_for_filename = chinese_title if chinese_title else english_title
+                        if title_for_filename and not self.tmdb_api.is_chinese(title_for_filename):
+                            chinese_title = await self.tmdb_api.get_chinese_title_for_movie(title_for_filename, tmdb_id_int)
+                            if chinese_title != title_for_filename:
+                                print(f"使用 TMDB 中文名作为文件名标题：{chinese_title}")
                         
                         # 只有在成功验证TMDB ID的情况下才生成新文件名
                         new_name = self.generate_new_filename(chinese_title, english_title, year, tmdb_id)
